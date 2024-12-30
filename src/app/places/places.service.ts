@@ -1,8 +1,8 @@
-import { inject, Injectable, signal } from '@angular/core';
-
+import { inject, Injectable } from '@angular/core';
 import { Place } from './place.model';
 import { HttpClient } from '@angular/common/http';
-import { catchError, tap, throwError } from 'rxjs';
+import { BehaviorSubject, catchError, tap, throwError } from 'rxjs';
+import { ErrorService } from '../shared/error.service';
 
 const apiUrl = 'http://localhost:3000';
 
@@ -10,10 +10,11 @@ const apiUrl = 'http://localhost:3000';
   providedIn: 'root',
 })
 export class PlacesService {
-  private userPlaces = signal<Place[]>([]);
-  private httpClient = inject(HttpClient);
+  private errorService = inject(ErrorService);
+  private userPlaces = new BehaviorSubject<Place[]>([]);
+  loadedUserPlaces = this.userPlaces.asObservable();
 
-  loadedUserPlaces = this.userPlaces.asReadonly();
+  constructor(private httpClient: HttpClient) {}
 
   loadAvailablePlaces() {
     return this.fetchPlaces(
@@ -29,26 +30,50 @@ export class PlacesService {
     ).pipe(
       tap({
         next: (resp: any) => {
-          console.log(resp);
-          this.userPlaces.set(resp.places);
+          this.userPlaces.next(resp.places);
         },
       })
     );
   }
 
   addPlaceToUserPlaces(place: Place) {
-    this.userPlaces.update((prevPlaces) => [...prevPlaces, place]);
-    return this.httpClient.put(`${apiUrl}/user-places`, {
-      placeId: place.id,
-    });
+    const currentPlaces = this.userPlaces.getValue();
+
+    if (!currentPlaces.some((p) => p.id === place.id)) {
+      this.userPlaces.next([...currentPlaces, place]);
+    }
+
+    return this.httpClient
+      .put(`${apiUrl}/user-places`, {
+        placeId: place.id,
+      })
+      .pipe(
+        catchError((err) => {
+          this.userPlaces.next(currentPlaces);
+          this.errorService.showError('Failed to store selected user.');
+          return throwError(() => new Error('Failed to store selected user.'));
+        })
+      );
   }
 
-  removeUserPlace(place: Place) {}
+  removeUserPlace(place: Place) {
+    const currentPlaces = this.userPlaces.getValue();
+    const updatedPlaces = currentPlaces.filter((p) => p.id !== place.id);
+    this.userPlaces.next(updatedPlaces);
+
+    return this.httpClient.delete(`${apiUrl}/user-places/${place.id}`).pipe(
+      catchError((err) => {
+        this.userPlaces.next(currentPlaces);
+        this.errorService.showError('Failed to remove selected place.');
+        return throwError(() => new Error('Failed to selected place.'));
+      })
+    );
+  }
 
   private fetchPlaces(url: string, errorMessage: string) {
     return this.httpClient.get<{ places: Place[] }>(url).pipe(
       catchError((err) => {
-        console.log(err);
+        console.error(err);
         return throwError(() => new Error(errorMessage));
       })
     );

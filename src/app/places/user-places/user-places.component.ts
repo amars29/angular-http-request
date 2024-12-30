@@ -27,11 +27,15 @@ export class UserPlacesComponent implements OnInit, OnChanges {
   error: any;
   private placesService = inject(PlacesService);
   private destroyRef = inject(DestroyRef);
-  places = this.placesService.loadedUserPlaces;
+  places: Place[] = [];
 
   apiUrl = 'http://localhost:3000';
 
   ngOnInit() {
+    this.placesService.loadedUserPlaces.subscribe((places) => {
+      this.places = places;
+    });
+
     this.isFetching.set(true);
     const subscription = this.placesService.loadUserPlaces().subscribe({
       error: (err) => {
@@ -51,7 +55,15 @@ export class UserPlacesComponent implements OnInit, OnChanges {
     console.log(this.places, 'userPlaces');
   }
 
-  onSelectPlace(place: Place) {
-    console.log('Selected place:', place);
+  onRemovePlace(place: Place) {
+    const subscription = this.placesService.removeUserPlace(place).subscribe({
+      error: (err) => {
+        this.error = err.message;
+      },
+    });
+
+    this.destroyRef.onDestroy(() => {
+      subscription.unsubscribe();
+    });
   }
 }
